@@ -4,13 +4,14 @@ import { MobileDeviceSimulator } from './components/MobileDeviceSimulator';
 import { ForensicCommandCenter } from './components/ForensicCommandCenter';
 import { ThreatDashboard } from './components/ThreatDashboard';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
+import { LiveNotificationBridge } from './components/LiveNotificationBridge';
 import { PhishingBlockModal } from './components/PhishingBlockModal';
 import { GlobalToastContainer, ToastNotification } from './components/GlobalToastContainer';
 import type { ScanRecord, IncomingSms, BlockedUrlRecord } from './types/threat';
 import { playThreatAlarm, playCyberScan, playSafeShieldSound, playCyberClick } from './lib/audio';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'mobile' | 'forensics' | 'android_code' | 'temporal'>('mobile');
+  const [activeTab, setActiveTab] = useState<'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge'>('mobile');
   const [shieldActive, setShieldActive] = useState(true);
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [incomingSmsList, setIncomingSmsList] = useState<IncomingSms[]>([]);
@@ -28,6 +29,17 @@ export default function App() {
       if (isDuplicate) return prev;
 
       const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+      // If user granted OS notifications, trigger native device push notification banner
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(toast.title, {
+            body: toast.subtitle,
+            icon: '/favicon.ico'
+          });
+        } catch {}
+      }
+
       return [{ ...toast, id }, ...prev.slice(0, 2)];
     });
   }, []);
@@ -309,6 +321,10 @@ export default function App() {
             onToggleShield={() => setShieldActive(!shieldActive)}
             blockedUrls={blockedUrls}
           />
+        )}
+
+        {activeTab === 'live_bridge' && (
+          <LiveNotificationBridge onInjectNotification={handleInjectSms} onNavigateTab={setActiveTab} />
         )}
 
         {activeTab === 'temporal' && (

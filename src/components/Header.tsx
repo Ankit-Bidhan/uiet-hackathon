@@ -3,8 +3,8 @@ import { Shield, Smartphone, Terminal, Volume2, VolumeX, Radio, Bug, TrendingUp 
 import { toggleAudioMute, getAudioMute, playCyberClick } from '../lib/audio';
 
 interface HeaderProps {
-  activeTab: 'mobile' | 'forensics' | 'android_code' | 'temporal';
-  setActiveTab: (tab: 'mobile' | 'forensics' | 'android_code' | 'temporal') => void;
+  activeTab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge';
+  setActiveTab: (tab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge') => void;
   stats: {
     totalScanned: number;
     quarantinedCount: number;
@@ -91,6 +91,21 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Smartphone className="w-3.5 h-3.5" />
             <span>Mobile Simulator</span>
+          </button>
+
+          <button
+            onClick={() => {
+              playCyberClick();
+              setActiveTab('live_bridge');
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer ${
+              activeTab === 'live_bridge'
+                ? 'bg-cyan-500 text-black font-semibold shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            <span>Live Phone Bridge</span>
           </button>
 
           <button

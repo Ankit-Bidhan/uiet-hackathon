@@ -54,7 +54,7 @@ export interface ScanRecord {
   threat_memory?: ThreatMemoryContext[]
   next_moves?: NextMovePrediction[]
   was_auto_blocked?: boolean
-  source?: 'manual' | 'realtime_sms_receiver' | 'realtime_url_guard' | 'webhook'
+  source?: 'manual' | 'realtime_sms_receiver' | 'realtime_url_guard' | 'webhook' | 'live_notification_listener'
   deep_analysis?: {
     social_engineering_tactics?: string[]
     technical_indicators?: string[]

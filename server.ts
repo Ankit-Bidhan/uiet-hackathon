@@ -435,6 +435,94 @@ app.post('/api/sms/incoming', async (req, res) => {
   }
 });
 
+// Real-Time Mobile Notification Bridge Endpoint (For MacroDroid, Tasker, or Native NotificationListenerService)
+app.post('/api/notification/incoming', async (req, res) => {
+  try {
+    const rawSender = req.body.sender || req.body.title || req.body.package || req.body.app || req.body.from || 'Phone Notification';
+    const rawBody = req.body.body || req.body.text || req.body.message || req.body.content || req.body.notification || '';
+    const receivedAt = req.body.receivedAt || new Date().toISOString();
+
+    const sender = String(rawSender).trim();
+    const body = String(rawBody).trim();
+
+    if (!body) {
+      return res.status(400).json({ error: 'Notification message text/body is required' });
+    }
+
+    const localScan = evaluateThreatLocally(body, sender);
+    const enriched = await enhanceWithGemini(body, localScan);
+    const urls = extractUrlsAndAnalyze(body).map((u) => u.original);
+
+    const isAutoBlocked = (enriched.risk_score ?? 0) >= 65;
+
+    const scanRecord: ScanRecord = {
+      id: `scan-notif-${Date.now()}`,
+      scan_type: 'realtime_sms',
+      raw_payload: body,
+      sender,
+      extracted_urls: urls,
+      risk_score: enriched.risk_score ?? 50,
+      risk_level: enriched.risk_level ?? 'SUSPICIOUS',
+      scam_category: enriched.scam_category ?? 'Unclassified Notification Payload',
+      indicators: enriched.indicators ?? [],
+      explanation: enriched.explanation ?? 'Live mobile notification analyzed.',
+      predicted_next_step: enriched.predicted_next_step ?? 'No action required.',
+      journey_nodes: enriched.journey_nodes ?? [],
+      next_moves: enriched.next_moves ?? [],
+      actions: enriched.actions ?? {},
+      created_at: receivedAt,
+      was_auto_blocked: isAutoBlocked,
+      source: 'live_notification_listener',
+      deep_analysis: enriched.deep_analysis
+    };
+
+    const incomingSmsItem: IncomingSms = {
+      id: `notif-${Date.now()}`,
+      sender,
+      body,
+      receivedAt,
+      riskScore: scanRecord.risk_score,
+      riskLevel: scanRecord.risk_level,
+      category: scanRecord.scam_category,
+      isAutoBlocked,
+      isQuarantined: isAutoBlocked,
+      urls,
+      scanRecord
+    };
+
+    recentScans.unshift(scanRecord);
+    quarantinedSms.unshift(incomingSmsItem);
+
+    if (isAutoBlocked && urls.length > 0) {
+      urls.forEach((u) => {
+        let domain = u;
+        try { domain = new URL(u).hostname; } catch {}
+        blockedUrls.unshift({
+          id: `blk-${Date.now()}-${Math.random()}`,
+          url: u,
+          domain,
+          blockedAt: receivedAt,
+          threatCategory: scanRecord.scam_category,
+          reason: `Auto-intercepted from high-risk notification sent by ${sender}`,
+          riskScore: scanRecord.risk_score,
+          interceptedFrom: `Phone Notification (${sender})`
+        });
+      });
+    }
+
+    broadcastEvent('SMS_INTERCEPTED', incomingSmsItem);
+
+    return res.json({
+      success: true,
+      blocked: isAutoBlocked,
+      incomingSms: incomingSmsItem
+    });
+  } catch (err: unknown) {
+    console.error('Error in /api/notification/incoming:', err);
+    return res.status(500).json({ error: 'Notification processing failed', details: (err as Error).message });
+  }
+});
+
 // Real-Time URL Gatekeeper & DNS-level Phishing Blocker Endpoint
 app.post('/api/url/intercept', async (req, res) => {
   try {
