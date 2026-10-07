@@ -1,0 +1,6 @@
+{
+  "name": "SafeCore AI - Real-Time Mobile Scam & Phishing Blocker",
+  "description": "Next-generation real-time SMS scam scanner and phishing URL blocker for mobile devices with automatic background interception, active DNS/web shields, and Gemini AI threat intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
