@@ -632,7 +632,7 @@ app.post('/api/threats/clear', (req, res) => {
 // Vite Dev Server / Static Production Mounting
 // ----------------------------------------------------
 const isProduction = process.env.NODE_ENV === 'production';
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 async function startServer() {
   if (isProduction) {
@@ -653,6 +653,11 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Fatal error starting server:', err);
-});
+// In Vercel serverless, app is exported without calling app.listen
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Fatal error starting server:', err);
+  });
+}
+
+export default app;
