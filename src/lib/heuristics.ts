@@ -77,10 +77,24 @@ function levenshteinDistance(a: string, b: string): number {
   return dp[m][n];
 }
 
+// Common conversational words that should NEVER be treated as brand lookalikes or URLs
+const COMMON_BENIGN_WORDS = new Set([
+  'hi', 'hii', 'hiii', 'hello', 'helloo', 'hey', 'heyy', 'hola', 'namaste',
+  'ok', 'okay', 'k', 'yes', 'no', 'haan', 'nahi', 'bye', 'good', 'morning',
+  'night', 'thanks', 'thank', 'thx', 'bhai', 'bro', 'sir', 'dear', 'call',
+  'kya', 'kaise', 'where', 'what', 'why', 'who', 'how', 'are', 'you', 'love',
+  'miss', 'test', 'wait', 'coming', 'home', 'done', 'welcome', 'please'
+]);
+
 function checkBrandTyposquat(domain: string): { isTyposquat: boolean; brand?: string; reason?: string } {
   const cleanDomain = domain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/[\/?#].*$/, '').toLowerCase();
   const domainParts = cleanDomain.split('.');
   const baseName = domainParts[0] || cleanDomain;
+
+  // Benign word guard
+  if (COMMON_BENIGN_WORDS.has(cleanDomain) || COMMON_BENIGN_WORDS.has(baseName)) {
+    return { isTyposquat: false };
+  }
 
   for (const [brand, verifiedHosts] of Object.entries(MONITORED_BRANDS)) {
     // 1. Check if it's already an official verified domain
@@ -105,14 +119,27 @@ function checkBrandTyposquat(domain: string): { isTyposquat: boolean; brand?: st
       };
     }
 
-    // 4. Levenshtein distance on baseName (e.g. 'youtubee', 'amazn', 'amazone', 'amzon', 'flpkart', 'netfliix', 'paytmm')
-    const dist = levenshteinDistance(baseName, brand);
-    if (dist > 0 && dist <= 2 && Math.abs(baseName.length - brand.length) <= 2) {
-      return {
-        isTyposquat: true,
-        brand,
-        reason: `High-confidence typosquatting of '${brand}' (lookalike variation: '${baseName}')`
-      };
+    // 4. Lookalike check: For short 3-letter brands like 'sbi', do NOT use Levenshtein distance
+    // (Levenshtein dist 2 on a 3-letter word like 'sbi' causes unrelated words like 'hii' or 'ski' to false-match!)
+    if (brand.length <= 3) {
+      if (baseName.startsWith(brand) || baseName.endsWith(brand) || baseName.includes(brand)) {
+        return {
+          isTyposquat: true,
+          brand,
+          reason: `Unverified domain targeting '${brand}' keyword: '${baseName}'`
+        };
+      }
+    } else if (baseName.length >= 4 && brand.length >= 4) {
+      // For longer brands (e.g. 'youtube', 'amazon', 'flipkart'), allow tight Levenshtein distance
+      const dist = levenshteinDistance(baseName, brand);
+      const maxAllowedDist = brand.length >= 7 ? 2 : 1;
+      if (dist > 0 && dist <= maxAllowedDist && Math.abs(baseName.length - brand.length) <= 2) {
+        return {
+          isTyposquat: true,
+          brand,
+          reason: `High-confidence typosquatting of '${brand}' (lookalike variation: '${baseName}')`
+        };
+      }
     }
   }
 
@@ -120,15 +147,11 @@ function checkBrandTyposquat(domain: string): { isTyposquat: boolean; brand?: st
 }
 
 export function extractUrlsAndAnalyze(text: string): ExtractedUrlInfo[] {
-  // Comprehensive regex matching URLs with or without http/www, and with any TLD
-  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.(?:[a-zA-Z]{2,12}|comm|coom|c0m|con|neett|orgg)(?:\/[^\s]*)?)/gi;
-  let matches = text.match(urlRegex) || [];
-  
-  // If no URL regex matched but input is a single token or domain word (e.g. "youtubee", "amazn", "sbi-kyc")
-  const singleWord = text.trim();
-  if (matches.length === 0 && singleWord.length > 2 && !singleWord.includes(' ')) {
-    matches = [singleWord];
-  }
+  // Comprehensive regex matching genuine URLs:
+  // Must either start with http://, https://, www., OR contain a domain with dot and valid recognized TLD.
+  // Regular text words (like "Hii", "Hello", "WhatsApp message", "bhai kaise ho") MUST NEVER be matched as URLs!
+  const urlRegex = /(?:https?:\/\/[^\s]+|www\.[^\s]+|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:online|racing|neett|store|space|click|party|comm|coom|orgg|tech|live|club|shop|link|buzz|loan|site|info|c0m|con|app|dev|biz|top|xyz|icu|vip|fit|win|com|org|net|edu|gov|mil|gq|ml|cf|ga|tk|in|co|io|ai|me|cc|ru|cn|uk|de|jp|us|ca|au|fr|it|nl|es|ch|at|be|pl|br|kr|mx|za|sg|hk|nz|tw|tr|id|ph|my|vn|th)(?:\/[^\s]*)?(?=[\s.,!?;:]|$))/gi;
+  const matches = text.match(urlRegex) || [];
   
   return matches.map((raw) => {
     let clean = raw.trim().replace(/[.,!?;:]$/, '');
@@ -230,7 +253,62 @@ export function extractUrlsAndAnalyze(text: string): ExtractedUrlInfo[] {
 
 export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Partial<ScanRecord> {
   const text = payload.toLowerCase();
+  const trimmed = payload.trim();
   const urlInfos = extractUrlsAndAnalyze(payload);
+
+  // 0. Instant detection of Casual Greetings & Everyday Personal Chat (e.g. "Hii", "Hello", "Hey", "Good morning", "Kaise ho", "bhai", "kaha ho")
+  const CASUAL_GREETINGS = /^(hi+|hello+|hey+|hola|namaste|good\s*(morning|afternoon|evening|night)|how\s*are\s*you|kaise\s*ho|kya\s*haal|wassup|what'?s\s*up|ok+|okay|k|thanks|thank\s*you|thx|bye|tc|take\s*care|haan|ha|nahi|yes|no|call\s*me|where\s*are\s*you|love\s*you|miss\s*you|bhai|bro|sun|suno|kaha\s*ho|kidhar\s*ho|kya\s*kar\s*(rhe|rahe)\s*ho|kal\s*milte\s*hai|theek\s*(hai|ho)|bolo|shukriya)[\s.!,?~:)]*$/i;
+
+  const hasUrgencyCoercion = THREAT_PATTERNS.URGENCY.test(text) || 
+                             /(suspended|blocked|deactivated|expire|freeze|action required|within 24|penalty|discontinue|block your)/i.test(text);
+
+  const hasAnyScamPattern = hasUrgencyCoercion ||
+    THREAT_PATTERNS.BANK_KYC.test(text) ||
+    THREAT_PATTERNS.DIGITAL_ARREST.test(text) ||
+    THREAT_PATTERNS.ELECTRICITY_DISCONNECT.test(text) ||
+    THREAT_PATTERNS.JOB_TASK.test(text) ||
+    THREAT_PATTERNS.DELIVERY_PARCEL.test(text) ||
+    THREAT_PATTERNS.UPI_LOTTERY.test(text) ||
+    THREAT_PATTERNS.APK_DROPPER.test(text);
+
+  const isCasualGreeting = urlInfos.length === 0 && !hasAnyScamPattern && (
+    CASUAL_GREETINGS.test(trimmed) ||
+    (trimmed.length <= 80 && /^(hi|hello|hey|ok|okay|haan|ha|kaise|kya|call|thanks|yes|no|good|done|wait|where|why|bhai|bro|sun|suno|kaha|kidhar|kal|aaj|theek|bolo|shukriya|namaste)/i.test(trimmed)) ||
+    (trimmed.length <= 40 && !/(http|www|\.cc|\.top|\.xyz|\.click|inr|rs\.?|\$|kyc|otp|pan|cbi|fir|police|apk|download|click|urgent|immediately)/i.test(text))
+  );
+
+  if (isCasualGreeting) {
+    return {
+      risk_score: 0,
+      risk_level: 'LOW',
+      scam_category: 'Casual Conversation / Benign Message',
+      indicators: [
+        'Normal conversational human greeting / personal message',
+        'Zero external links or URLs detected in payload',
+        'Zero financial coercion, panic deadlines, or credential harvesting'
+      ],
+      explanation: `Safe Personal Message: "${trimmed}" is a routine conversational greeting or message from a contact. It contains zero malicious links, zero social engineering coercion, and poses zero security risk.`,
+      predicted_next_step: 'Normal personal conversation; no threat progression or containment required.',
+      journey_nodes: [
+        { id: 'node-sender', label: `Sender: ${sender}`, type: 'phone', status: 'neutral', stage: 'OBSERVED', details: 'Personal contact / chat' },
+        { id: 'node-msg', label: `Payload: "${trimmed}"`, type: 'sms', status: 'neutral', stage: 'CURRENT', details: 'Benign personal communication' }
+      ],
+      next_moves: [
+        {
+          type: 'Personal Conversation',
+          confidence: 100,
+          why: ['Everyday human communication without scam indicators'],
+          action_label: 'SAFE • NORMAL CHAT'
+        }
+      ],
+      actions: {
+        block: undefined,
+        avoid: 'None. Authentic personal message.',
+        report: 'No action required.'
+      },
+      was_auto_blocked: false
+    };
+  }
   
   let score = 0;
   let category = 'Legitimate / Informational Notification';
@@ -254,9 +332,6 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
   }
 
   // Check for bank credibility markers vs scam vectors
-  const hasUrgencyCoercion = THREAT_PATTERNS.URGENCY.test(text) || 
-                             /(suspended|blocked|deactivated|expire|freeze|action required|within 24|penalty|discontinue|block your)/i.test(text);
-
   const OFFICIAL_BANK_DOMAINS = [
     'sbi.co.in', 'onlinesbi.sbi', 'onlinesbi.com',
     'hdfcbank.com', 'hdfc.com',

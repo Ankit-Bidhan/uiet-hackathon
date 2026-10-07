@@ -31,13 +31,13 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
 }) => {
   const [activeApp, setActiveApp] = useState<'messages' | 'shield' | 'browser'>('messages');
   const [selectedSms, setSelectedSms] = useState<IncomingSms | null>(null);
-  const [browserInputUrl, setBrowserInputUrl] = useState('https://sbi-kyc-portal.cc/login');
+  const [browserInputUrl, setBrowserInputUrl] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [headsUpAlert, setHeadsUpAlert] = useState<IncomingSms | null>(null);
 
   // Custom injector form
-  const [customSender, setCustomSender] = useState('VK-SBIINB');
-  const [customBody, setCustomBody] = useState('SBI Alert: Dear customer, your NetBanking access is disabled. Reactivate PAN KYC at https://sbi-kyc-portal.cc/login immediately.');
+  const [customSender, setCustomSender] = useState('');
+  const [customBody, setCustomBody] = useState('');
 
   // Auto-stream telecom simulation
   const [autoStreamActive, setAutoStreamActive] = useState(false);
@@ -343,9 +343,27 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
                     </div>
 
                     {incomingSmsList.length === 0 ? (
-                      <div className="py-16 text-center text-xs text-slate-500 font-mono space-y-2">
-                        <div>No messages currently in inbox.</div>
-                        <div className="text-[11px] text-cyan-400">Use the 1-Click Test Station or connect your phone via Phone Bridge!</div>
+                      <div className="py-14 text-center px-4 space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto">
+                          <Radio className="w-6 h-6 animate-pulse" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-bold font-mono text-white">
+                            Phone Bridge Armed • Inbox Ready
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
+                            No messages currently in inbox. Real-time phone messages sent via the Phone Bridge or test buttons will appear here live.
+                          </p>
+                        </div>
+                        {onNavigateBridge && (
+                          <button
+                            onClick={onNavigateBridge}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold transition-colors cursor-pointer"
+                          >
+                            <Radio className="w-3.5 h-3.5" />
+                            <span>Connect Real Phone →</span>
+                          </button>
+                        )}
                       </div>
                     ) : (
                       incomingSmsList.map((sms) => (

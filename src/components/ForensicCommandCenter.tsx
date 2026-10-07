@@ -92,8 +92,18 @@ export const ForensicCommandCenter: React.FC<ForensicCommandCenterProps> = ({
           </div>
 
           <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
-            {scans.map((s) => {
-              const isSelected = current?.id === s.id;
+            {scans.length === 0 ? (
+              <div className="p-6 rounded-xl bg-slate-900/50 border border-slate-800 text-center space-y-2">
+                <div className="text-xs font-mono font-bold text-slate-300">
+                  Ready for Real-Time Threat Scans
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  All mock messages removed. Messages received from your phone bridge or manual sandbox will appear here with instant forensic telemetry.
+                </p>
+              </div>
+            ) : (
+              scans.map((s) => {
+                const isSelected = current?.id === s.id;
               return (
                 <div
                   key={s.id}
@@ -129,7 +139,8 @@ export const ForensicCommandCenter: React.FC<ForensicCommandCenterProps> = ({
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
           </div>
 
           {/* Forensic Manual Input Tool */}

@@ -29,132 +29,11 @@ if (apiKey) {
   });
 }
 
-// In-Memory Storage for Demo & Live Sessions
-const recentScans: ScanRecord[] = [
-  {
-    id: 'scan-init-1',
-    scan_type: 'realtime_sms',
-    raw_payload: 'SBI ALERT: Dear customer, your YONO NetBanking account is suspended due to expired PAN KYC. Update immediately at https://sbi-kyc-portal.cc/login to prevent permanent block.',
-    sender: 'AD-SBIBNK',
-    extracted_urls: ['https://sbi-kyc-portal.cc/login'],
-    risk_score: 96,
-    risk_level: 'CRITICAL',
-    scam_category: 'Bank KYC Deactivation / Phishing Fraud',
-    indicators: [
-      'Banking/KYC impersonation urgency trigger',
-      'High-abuse Top-Level Domain (.cc)',
-      'Spoofed domain mimicing State Bank of India',
-      'Immediate threat of account deactivation'
-    ],
-    explanation: 'Critical Banking Credential Harvester: Uses official-looking sender ID to induce panic over PAN/KYC expiry. Leads to a reverse proxy site harvesting NetBanking login, password, and OTP in real time.',
-    predicted_next_step: 'Fake NetBanking Portal Redirection: Attacker will request NetBanking username, password, profile password, and OTP on the spoofed landing page.',
-    journey_nodes: [
-      { id: 'jn-1', label: 'Sender: AD-SBIBNK (Spoofed)', type: 'phone', status: 'flagged', details: 'Spoofed bulk SMS header' },
-      { id: 'jn-2', label: 'sbi-kyc-portal.cc', type: 'url', status: 'flagged', details: 'Registered 3 days ago in Panama' },
-      { id: 'jn-3', label: 'Fake NetBanking Portal', type: 'website', status: 'flagged', details: 'Cloned SBI YONO login UI' },
-      { id: 'jn-4', label: 'OTP Interception Proxy', type: 'otp', status: 'flagged', details: 'Auto-relays OTP to money mule account' }
-    ],
-    actions: {
-      block: 'Sender and domain sbi-kyc-portal.cc permanently blacklisted.',
-      avoid: 'Do not click the link or provide banking credentials.',
-      report: 'Reported to 1930 / National Cyber Crime Portal.'
-    },
-    created_at: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    was_auto_blocked: true,
-    source: 'realtime_sms_receiver'
-  },
-  {
-    id: 'scan-init-2',
-    scan_type: 'realtime_url',
-    raw_payload: 'http://track-parcel-indpost.top/pay-3.99',
-    extracted_urls: ['http://track-parcel-indpost.top/pay-3.99'],
-    risk_score: 88,
-    risk_level: 'CRITICAL',
-    scam_category: 'Courier & Postal Fee Phishing Bait',
-    indicators: [
-      'Customs / postal hold fee lure',
-      'Unencrypted HTTP protocol',
-      'High-risk .top TLD'
-    ],
-    explanation: 'Delivery Scam Card Skimmer: Asks for a tiny ₹3.99 / $2.99 re-delivery payment solely to capture credit card number, CVV, and expiry date.',
-    predicted_next_step: 'Credit card harvesting followed by automated overseas recurring micro-transactions.',
-    journey_nodes: [
-      { id: 'jn-21', label: 'track-parcel-indpost.top', type: 'url', status: 'flagged', details: 'Bulletproof host' },
-      { id: 'jn-22', label: 'Fake Payment Form', type: 'payment', status: 'flagged', details: 'Card harvester' }
-    ],
-    actions: {
-      block: 'URL isolated and blocked by SafeCore Real-Time Shield.',
-      avoid: 'Never submit payment cards on unverified postal links.'
-    },
-    created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    was_auto_blocked: true,
-    source: 'realtime_url_guard'
-  }
-];
-
-const quarantinedSms: IncomingSms[] = [
-  {
-    id: 'sms-init-1',
-    sender: 'AD-SBIBNK',
-    body: 'SBI ALERT: Dear customer, your YONO NetBanking account is suspended due to expired PAN KYC. Update immediately at https://sbi-kyc-portal.cc/login to prevent permanent block.',
-    receivedAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    riskScore: 96,
-    riskLevel: 'CRITICAL',
-    category: 'Bank KYC Deactivation / Phishing Fraud',
-    isAutoBlocked: true,
-    isQuarantined: true,
-    urls: ['https://sbi-kyc-portal.cc/login'],
-    scanRecord: recentScans[0]
-  }
-];
-
-const blockedUrls: BlockedUrlRecord[] = [
-  {
-    id: 'blk-1',
-    url: 'https://sbi-kyc-portal.cc/login',
-    domain: 'sbi-kyc-portal.cc',
-    blockedAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    threatCategory: 'Bank Impersonation / Credential Harvester',
-    reason: 'Detected fake banking reverse-proxy collecting NetBanking credentials',
-    riskScore: 96,
-    interceptedFrom: 'Incoming SMS (AD-SBIBNK)'
-  },
-  {
-    id: 'blk-2',
-    url: 'http://track-parcel-indpost.top/pay-3.99',
-    domain: 'track-parcel-indpost.top',
-    blockedAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    threatCategory: 'Credit Card Skimmer',
-    reason: 'Suspicious .top TLD posing as India Post delivery depot fee',
-    riskScore: 88,
-    interceptedFrom: 'Browser Navigation Click'
-  }
-];
-
-const threatMemory: ThreatMemoryContext[] = [
-  {
-    entity: 'sbi-kyc-portal.cc',
-    entity_type: 'domain',
-    first_seen: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    last_seen: new Date().toISOString(),
-    observation_count: 5,
-    previous_risk: 'CRITICAL',
-    previous_category: 'Bank KYC Deactivation / Phishing Fraud',
-    previous_scan_ids: ['scan-init-1'],
-    is_new: false
-  },
-  {
-    entity: 'AD-SBIBNK',
-    entity_type: 'sender',
-    first_seen: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString(),
-    last_seen: new Date().toISOString(),
-    observation_count: 3,
-    previous_risk: 'HIGH',
-    previous_category: 'Sender Header Spoofing',
-    previous_scan_ids: ['scan-init-1'],
-    is_new: false
-  }
-];
+// In-Memory Storage for Demo & Live Sessions (Starts Clean for Real Phone Connection)
+const recentScans: ScanRecord[] = [];
+const quarantinedSms: IncomingSms[] = [];
+const blockedUrls: BlockedUrlRecord[] = [];
+const threatMemory: ThreatMemoryContext[] = [];
 
 // Server-Sent Events (SSE) Client Connections
 interface SseClient {
@@ -183,6 +62,11 @@ let geminiQuotaPausedUntil = 0;
 async function enhanceWithGemini(payload: string, localScan: Partial<ScanRecord>): Promise<Partial<ScanRecord>> {
   if (!ai) return localScan;
 
+  // If local heuristics conclusively identified it as a safe casual greeting or verified bank notification, return immediately
+  if (localScan.risk_score === 0 || localScan.scam_category?.includes('Casual Conversation') || (localScan.risk_score !== undefined && localScan.risk_score <= 5 && localScan.risk_level === 'LOW')) {
+    return localScan;
+  }
+
   // If currently in a quota exhaustion cool-off period, bypass immediately to fast heuristics
   if (Date.now() < geminiQuotaPausedUntil) {
     return localScan;
@@ -202,9 +86,10 @@ Perform deep cybersecurity threat intelligence analysis. Evaluate:
 1. Exact scam archetype (e.g. Brand Typosquatting / Fake E-Commerce/Video portal like 'amazn.comm' or 'youtubee.com', Digital Arrest Extortion, Fake Bank/KYC, Courier Phishing, YouTube/Telegram task scam, Electricity bill cutoff, Malicious APK dropper).
 2. Look for deceptive typosquatting, character omissions/repetitions (e.g., 'amazn' instead of 'amazon', 'youtubee' instead of 'youtube'), spoofed extensions (e.g. '.comm' instead of '.com'), and brand impersonation. If a URL mimics a known brand without being their official domain, mark risk_score >= 90 and risk_level = CRITICAL.
 3. Differentiating Genuine Bank Messages from Scams: If the payload is a genuine, routine bank transaction or informational alert (e.g. 'INR 500 debited from A/C', balance check, routine KYC confirmation) without panic coercion and without suspicious third-party links, classify it as LOW risk (<10% score) 'Legitimate Banking Notification'. Flag as CRITICAL only if it uses urgency coercion ('account suspended in 24 hours') or unverified phishing links.
-4. Social engineering deception tactics used (coercion, fear, greed, fake authority).
-5. The attacker's projected next step in the kill chain (e.g., harvesting NetBanking credentials, requesting OTP, demanding RTGS transfer, prompting AnyDesk install).
-6. Concrete technical indicators & containment steps.
+4. Everyday Casual Messages & Greetings: Everyday personal human chat (e.g. 'Hii', 'Hello', 'Hey', 'Good morning', 'How are you', 'Ok', 'Call me', 'Where are you', friend texts) without any suspicious links or scam hooks are 100% SAFE (risk_score = 0, risk_level = 'LOW', scam_category = 'Casual Conversation / Benign Message'). Do NOT treat casual words like 'Hii' or 'Hello' as URLs or brand names.
+5. Social engineering deception tactics used (coercion, fear, greed, fake authority).
+6. The attacker's projected next step in the kill chain (e.g., harvesting NetBanking credentials, requesting OTP, demanding RTGS transfer, prompting AnyDesk install).
+7. Concrete technical indicators & containment steps.
 
 Return ONLY a valid JSON object matching the requested schema.`;
 

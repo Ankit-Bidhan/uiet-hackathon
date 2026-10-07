@@ -18,8 +18,8 @@ export const LiveNotificationBridge: React.FC<LiveNotificationBridgeProps> = ({
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedCompanionUrl, setCopiedCompanionUrl] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
-  const [testSender, setTestSender] = useState('com.whatsapp (WhatsApp Notification)');
-  const [testBody, setTestBody] = useState('Part-Time Review Job: Earn ₹4,500 daily by watching YouTube videos! Tap to join: http://youtubee.com/task-invite');
+  const [testSender, setTestSender] = useState('');
+  const [testBody, setTestBody] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
@@ -298,12 +298,14 @@ export const LiveNotificationBridge: React.FC<LiveNotificationBridgeProps> = ({
                     type="text"
                     value={testSender}
                     onChange={(e) => setTestSender(e.target.value)}
+                    placeholder="e.g. WhatsApp, VK-SBIINB, +919876543210"
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white font-mono focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-mono text-slate-400">Quick Test Archetype:</label>
                   <select
+                    defaultValue=""
                     onChange={(e) => {
                       const val = e.target.value;
                       if (val === 'sbi') {
@@ -325,6 +327,7 @@ export const LiveNotificationBridge: React.FC<LiveNotificationBridgeProps> = ({
                     }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-cyan-300 font-mono focus:border-cyan-500 focus:outline-none"
                   >
+                    <option value="">-- Choose Archetype (Optional) --</option>
                     <option value="youtube">🟣 WhatsApp YouTube Task Scam</option>
                     <option value="sbi">🔴 SBI KYC Deactivation Phishing</option>
                     <option value="police">🔴 CBI Digital Arrest Extortion</option>
@@ -339,6 +342,7 @@ export const LiveNotificationBridge: React.FC<LiveNotificationBridgeProps> = ({
                 <textarea
                   value={testBody}
                   onChange={(e) => setTestBody(e.target.value)}
+                  placeholder="Paste or type notification message text here..."
                   rows={2}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white focus:border-cyan-500 focus:outline-none leading-relaxed"
                 />

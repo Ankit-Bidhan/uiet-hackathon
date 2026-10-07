@@ -7,8 +7,8 @@ interface MobileCompanionViewProps {
 }
 
 export const MobileCompanionView: React.FC<MobileCompanionViewProps> = ({ onExit }) => {
-  const [sender, setSender] = useState('WhatsApp (+91 98765 43210)');
-  const [body, setBody] = useState('SBI ALERT: Dear customer, your YONO NetBanking account is suspended due to expired PAN KYC. Update immediately at https://sbi-kyc-portal.cc/login');
+  const [sender, setSender] = useState('');
+  const [body, setBody] = useState('');
   const [status, setStatus] = useState<'idle' | 'transmitting' | 'success' | 'error'>('idle');
   const [result, setResult] = useState<any>(null);
 
