@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, ShieldAlert, ShieldCheck, Smartphone, Send, Globe, MessageSquare, 
-  Settings, RefreshCw, Zap, Bell, CheckCircle, ExternalLink, Play, Pause, ChevronRight, Lock, Eye, Trash2, Radio
+  Settings, RefreshCw, Zap, Bell, CheckCircle, ExternalLink, Play, Pause, ChevronRight, Lock, Eye, Trash2, Radio,
+  QrCode, AlertTriangle, UserCheck, UserX
 } from 'lucide-react';
 import type { IncomingSms, ScanRecord, BlockedUrlRecord } from '../types/threat';
 import { playCyberClick, playCyberScan, playThreatAlarm, playSafeShieldSound } from '../lib/audio';
 
 interface MobileDeviceSimulatorProps {
   incomingSmsList: IncomingSms[];
-  onInjectSms: (sender: string, body: string) => Promise<any>;
+  onInjectSms: (sender: string, body: string, isUnknownSender?: boolean) => Promise<any>;
   onInspectScan: (scan: ScanRecord) => void;
   onInterceptUrl: (url: string, source: string) => Promise<void>;
   shieldActive: boolean;
@@ -38,6 +39,7 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
   // Custom injector form
   const [customSender, setCustomSender] = useState('');
   const [customBody, setCustomBody] = useState('');
+  const [isCustomUnknown, setIsCustomUnknown] = useState(true);
 
   // Auto-stream telecom simulation
   const [autoStreamActive, setAutoStreamActive] = useState(false);
@@ -101,10 +103,10 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
     return () => clearInterval(interval);
   }, [autoStreamActive]);
 
-  const handleQuickInject = async (sender: string, body: string) => {
+  const handleQuickInject = async (sender: string, body: string, isUnknownSender?: boolean) => {
     playCyberClick();
     setIsSending(true);
-    await onInjectSms(sender, body);
+    await onInjectSms(sender, body, isUnknownSender);
     setIsSending(false);
   };
 
@@ -113,7 +115,7 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
     if (!customBody.trim()) return;
     playCyberClick();
     setIsSending(true);
-    await onInjectSms(customSender || '+919876543210', customBody);
+    await onInjectSms(customSender || '+919876543210', customBody, isCustomUnknown);
     setIsSending(false);
   };
 

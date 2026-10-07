@@ -193,21 +193,24 @@ app.get('/api/stream/events', (req, res) => {
 // Comprehensive Analysis Endpoint
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { payload, type = 'message', sender = 'UNKNOWN' } = req.body;
+    const { payload, type = 'message', sender = 'UNKNOWN', isUnknownSender } = req.body;
     if (!payload || typeof payload !== 'string') {
       return res.status(400).json({ error: 'Payload must be a non-empty string' });
     }
 
-    const localScan = evaluateThreatLocally(payload, sender);
+    const localScan = evaluateThreatLocally(payload, sender, isUnknownSender);
     const enriched = await enhanceWithGemini(payload, localScan);
 
     const urls = extractUrlsAndAnalyze(payload).map((u) => u.original);
 
     const scanRecord: ScanRecord = {
       id: `scan-${Date.now()}`,
-      scan_type: type,
+      scan_type: localScan.scan_type || type,
       raw_payload: payload,
       sender: sender !== 'UNKNOWN' ? sender : undefined,
+      is_unknown_sender: localScan.is_unknown_sender,
+      sender_classification: localScan.sender_classification,
+      qr_analysis: localScan.qr_analysis,
       extracted_urls: urls,
       risk_score: enriched.risk_score ?? 50,
       risk_level: enriched.risk_level ?? 'SUSPICIOUS',
@@ -236,15 +239,68 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
+// Dedicated QR Code & Quishing Scanner Endpoint
+app.post('/api/scan/qr', async (req, res) => {
+  try {
+    const { qrPayload = '', sender = 'QR_CODE', isUnknownSender } = req.body;
+    if (!qrPayload || typeof qrPayload !== 'string') {
+      return res.status(400).json({ error: 'QR Payload string is required' });
+    }
+
+    const localScan = evaluateThreatLocally(qrPayload, sender, isUnknownSender);
+    const enriched = await enhanceWithGemini(qrPayload, localScan);
+
+    const isAutoBlocked = (enriched.risk_score ?? localScan.risk_score ?? 0) >= 70;
+
+    const scanRecord: ScanRecord = {
+      id: `scan-qr-${Date.now()}`,
+      scan_type: 'qr',
+      raw_payload: qrPayload,
+      sender: sender !== 'UNKNOWN' ? sender : 'QR Scanner',
+      is_unknown_sender: localScan.is_unknown_sender,
+      sender_classification: localScan.sender_classification,
+      qr_analysis: localScan.qr_analysis,
+      extracted_urls: extractUrlsAndAnalyze(qrPayload).map((u) => u.original),
+      risk_score: enriched.risk_score ?? localScan.risk_score ?? 50,
+      risk_level: enriched.risk_level ?? localScan.risk_level ?? 'SUSPICIOUS',
+      scam_category: enriched.scam_category ?? localScan.scam_category ?? 'QR Code Payload',
+      indicators: enriched.indicators ?? localScan.indicators ?? [],
+      explanation: enriched.explanation ?? localScan.explanation ?? 'QR Code analyzed.',
+      predicted_next_step: enriched.predicted_next_step ?? localScan.predicted_next_step ?? 'Do not scan without verification.',
+      journey_nodes: enriched.journey_nodes ?? localScan.journey_nodes ?? [],
+      next_moves: enriched.next_moves ?? localScan.next_moves ?? [],
+      actions: enriched.actions ?? localScan.actions ?? {},
+      created_at: new Date().toISOString(),
+      was_auto_blocked: isAutoBlocked,
+      source: 'manual',
+      deep_analysis: enriched.deep_analysis
+    };
+
+    recentScans.unshift(scanRecord);
+    if (recentScans.length > 50) recentScans.pop();
+
+    broadcastEvent('NEW_SCAN', scanRecord);
+
+    return res.json({
+      success: true,
+      scanRecord,
+      qrAnalysis: localScan.qr_analysis
+    });
+  } catch (err: unknown) {
+    console.error('Error in /api/scan/qr:', err);
+    return res.status(500).json({ error: 'QR scan analysis failed', details: (err as Error).message });
+  }
+});
+
 // Real-Time Incoming SMS Interception Endpoint (Simulates Android SmsReceiver)
 app.post('/api/sms/incoming', async (req, res) => {
   try {
-    const { sender = '+919876543210', body = '', receivedAt = new Date().toISOString() } = req.body;
+    const { sender = '+919876543210', body = '', receivedAt = new Date().toISOString(), isUnknownSender } = req.body;
     if (!body || typeof body !== 'string') {
       return res.status(400).json({ error: 'SMS body is required' });
     }
 
-    const localScan = evaluateThreatLocally(body, sender);
+    const localScan = evaluateThreatLocally(body, sender, isUnknownSender);
     const enriched = await enhanceWithGemini(body, localScan);
     const urls = extractUrlsAndAnalyze(body).map((u) => u.original);
 
@@ -255,6 +311,9 @@ app.post('/api/sms/incoming', async (req, res) => {
       scan_type: 'realtime_sms',
       raw_payload: body,
       sender,
+      is_unknown_sender: localScan.is_unknown_sender,
+      sender_classification: localScan.sender_classification,
+      qr_analysis: localScan.qr_analysis,
       extracted_urls: urls,
       risk_score: enriched.risk_score ?? 50,
       risk_level: enriched.risk_level ?? 'SUSPICIOUS',
@@ -281,6 +340,8 @@ app.post('/api/sms/incoming', async (req, res) => {
       category: scanRecord.scam_category,
       isAutoBlocked,
       isQuarantined: isAutoBlocked,
+      isUnknownSender: localScan.is_unknown_sender,
+      senderClassification: localScan.sender_classification,
       urls,
       scanRecord
     };
@@ -329,12 +390,13 @@ app.post('/api/notification/incoming', async (req, res) => {
 
     const sender = String(rawSender).trim();
     const body = String(rawBody).trim();
+    const isUnknownSender = req.body.isUnknownSender !== undefined ? Boolean(req.body.isUnknownSender) : undefined;
 
     if (!body) {
       return res.status(400).json({ error: 'Notification message text/body is required' });
     }
 
-    const localScan = evaluateThreatLocally(body, sender);
+    const localScan = evaluateThreatLocally(body, sender, isUnknownSender);
     const enriched = await enhanceWithGemini(body, localScan);
     const urls = extractUrlsAndAnalyze(body).map((u) => u.original);
 
@@ -342,9 +404,12 @@ app.post('/api/notification/incoming', async (req, res) => {
 
     const scanRecord: ScanRecord = {
       id: `scan-notif-${Date.now()}`,
-      scan_type: 'realtime_sms',
+      scan_type: localScan.scan_type || 'realtime_sms',
       raw_payload: body,
       sender,
+      is_unknown_sender: localScan.is_unknown_sender,
+      sender_classification: localScan.sender_classification,
+      qr_analysis: localScan.qr_analysis,
       extracted_urls: urls,
       risk_score: enriched.risk_score ?? 50,
       risk_level: enriched.risk_level ?? 'SUSPICIOUS',
@@ -371,6 +436,8 @@ app.post('/api/notification/incoming', async (req, res) => {
       category: scanRecord.scam_category,
       isAutoBlocked,
       isQuarantined: isAutoBlocked,
+      isUnknownSender: localScan.is_unknown_sender,
+      senderClassification: localScan.sender_classification,
       urls,
       scanRecord
     };

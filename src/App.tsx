@@ -7,12 +7,13 @@ import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { LiveNotificationBridge } from './components/LiveNotificationBridge';
 import { MobileCompanionView } from './components/MobileCompanionView';
 import { PhishingBlockModal } from './components/PhishingBlockModal';
+import { QrPhishingShield } from './components/QrPhishingShield';
 import { GlobalToastContainer, ToastNotification } from './components/GlobalToastContainer';
 import type { ScanRecord, IncomingSms, BlockedUrlRecord } from './types/threat';
 import { playThreatAlarm, playCyberScan, playSafeShieldSound, playCyberClick } from './lib/audio';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge'>('mobile');
+  const [activeTab, setActiveTab] = useState<'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge' | 'qr_shield'>('mobile');
   const [shieldActive, setShieldActive] = useState(true);
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [incomingSmsList, setIncomingSmsList] = useState<IncomingSms[]>([]);
@@ -178,12 +179,12 @@ export default function App() {
   }, []);
 
   // Real-Time SMS Injection Trigger (Memoized with useCallback to maintain stable reference)
-  const handleInjectSms = useCallback(async (sender: string, body: string) => {
+  const handleInjectSms = useCallback(async (sender: string, body: string, isUnknownSender?: boolean) => {
     try {
       const res = await fetch('/api/sms/incoming', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sender, body, receivedAt: new Date().toISOString() })
+        body: JSON.stringify({ sender, body, receivedAt: new Date().toISOString(), isUnknownSender })
       });
       if (res.ok) {
         const data = await res.json();
@@ -372,6 +373,19 @@ export default function App() {
             onSelectScan={setActiveScan}
             onManualAnalyze={handleManualAnalyze}
             isAnalyzing={isAnalyzing}
+          />
+        )}
+
+        {activeTab === 'qr_shield' && (
+          <QrPhishingShield
+            onInspectInForensics={(scan) => {
+              setActiveScan(scan);
+              setActiveTab('forensics');
+            }}
+            onSendToMobile={(payload, sender) => {
+              handleInjectSms(payload, sender);
+              setActiveTab('mobile');
+            }}
           />
         )}
 

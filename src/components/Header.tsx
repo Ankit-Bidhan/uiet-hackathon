@@ -1,10 +1,10 @@
 import React from 'react';
-import { Shield, Smartphone, Terminal, Volume2, VolumeX, Radio, Bug, TrendingUp, RotateCcw } from 'lucide-react';
+import { Shield, Smartphone, Terminal, Volume2, VolumeX, Radio, Bug, TrendingUp, RotateCcw, QrCode } from 'lucide-react';
 import { toggleAudioMute, getAudioMute, playCyberClick } from '../lib/audio';
 
 interface HeaderProps {
-  activeTab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge';
-  setActiveTab: (tab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge') => void;
+  activeTab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge' | 'qr_shield';
+  setActiveTab: (tab: 'mobile' | 'forensics' | 'android_code' | 'temporal' | 'live_bridge' | 'qr_shield') => void;
   stats: {
     totalScanned: number;
     quarantinedCount: number;
@@ -108,6 +108,21 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Radio className="w-3.5 h-3.5" />
             <span>Live Phone Bridge</span>
+          </button>
+
+          <button
+            onClick={() => {
+              playCyberClick();
+              setActiveTab('qr_shield');
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer ${
+              activeTab === 'qr_shield'
+                ? 'bg-cyan-500 text-black font-semibold shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>QR Scam Shield</span>
           </button>
 
           <button

@@ -1,4 +1,4 @@
-import { RiskLevel, ScanRecord, JourneyNode, NextMovePrediction } from '../types/threat';
+import { RiskLevel, ScanRecord, JourneyNode, NextMovePrediction, SenderClassification, QrCodeAnalysis } from '../types/threat';
 
 export const THREAT_PATTERNS = {
   BANK_KYC: /(kyc|sbi|hdfc|icici|axis|pnb|pan\s*card|netbanking|bank\s*account|account\s*suspended|account\s*blocked|yono|debit\s*card|credit\s*card|cvv|expiry)/i,
@@ -251,9 +251,350 @@ export function extractUrlsAndAnalyze(text: string): ExtractedUrlInfo[] {
   });
 }
 
-export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Partial<ScanRecord> {
+// Comprehensive Sender Intelligence Classification
+export function classifySender(sender: string, userMarkedSaved?: boolean): SenderClassification {
+  const clean = (sender || '').trim();
+  const upper = clean.toUpperCase();
+
+  // 1. Explicit user override
+  if (userMarkedSaved === true) {
+    return {
+      type: 'SAVED_CONTACT',
+      label: 'Saved Contact',
+      badge: '👥 Saved Contact',
+      isHighRiskVector: false,
+      description: 'Contact is verified and saved in local phone address book.'
+    };
+  }
+
+  // 2. Official Indian TRAI Telecom registered DLT header
+  // e.g. AX-HDFCBK, VM-SBIPAY, BZ-ICICIB, AD-KOTAKB, CP-AIRTEL, JD-JIOFIB, AD-PAYTM, VK-PNBSMS
+  const isTraiDlt = /^[a-zA-Z]{2}-[a-zA-Z]{5,8}$/i.test(clean);
+  const knownDltEntities = ['HDFC', 'SBI', 'ICICI', 'AXIS', 'KOTAK', 'PNB', 'PAYTM', 'AIRTEL', 'JIO', 'IRCTC', 'UIDAI', 'INDIAP', 'CRED', 'AMAZON', 'FLIPKT'];
+  const hasLegitDltKeyword = knownDltEntities.some(k => upper.includes(k));
+
+  if (isTraiDlt && hasLegitDltKeyword) {
+    return {
+      type: 'REGISTERED_BANK_DLT',
+      label: 'Verified DLT Telecom Header',
+      badge: '🏛️ Registered Telecom Header (TRAI)',
+      isHighRiskVector: false,
+      description: `Official enterprise DLT sender (${clean}) regulated under TRAI telecom anti-spam framework.`
+    };
+  }
+
+  // 3. Spoofed Alphanumeric Header (e.g. "SBI-ALERT", "HDFC-NET", "VK-LOANS") lacking authentic 2-letter TRAI prefix
+  if (/^[a-zA-Z0-9_\-\s]{3,14}$/.test(clean) && !clean.startsWith('+') && !/^\d+$/.test(clean) && 
+      (upper.includes('SBI') || upper.includes('HDFC') || upper.includes('BANK') || upper.includes('KYC') || upper.includes('LOAN') || upper.includes('REWARD') || upper.includes('ALERT'))) {
+    return {
+      type: 'SPOOFED_ALPHANUMERIC',
+      label: 'Unverified Alphanumeric Header',
+      badge: '🚨 Spoofed Sender Suspicion',
+      isHighRiskVector: true,
+      description: `Sender "${clean}" mimics banking keywords without verified TRAI DLT cryptographic registration.`
+    };
+  }
+
+  // 4. Raw phone numbers (e.g. +91 98765 43210, +92..., +1..., or 10-14 digits)
+  const digitsOnly = clean.replace(/[^0-9]/g, '');
+  const looksLikePhone = clean.startsWith('+') || (digitsOnly.length >= 10 && digitsOnly.length <= 15) || clean.startsWith('0');
+
+  if (looksLikePhone || userMarkedSaved === false) {
+    return {
+      type: 'UNKNOWN_NUMBER',
+      label: 'Unknown / Unsaved Number',
+      badge: '⚠️ Unknown Number (High Scrutiny)',
+      isHighRiskVector: true,
+      description: `Incoming communication from unverified mobile number (${clean}). Scammers predominantly use untracked burner SIMs.`
+    };
+  }
+
+  // 5. Friendly names saved locally
+  if (/^(mom|dad|mummy|papa|bhai|bro|sister|priya|rahul|amit|rohit|boss|friend|home|family|office)$/i.test(clean)) {
+    return {
+      type: 'SAVED_CONTACT',
+      label: 'Saved Contact',
+      badge: '👥 Saved Contact',
+      isHighRiskVector: false,
+      description: 'Recognized personal contact name.'
+    };
+  }
+
+  return {
+    type: 'UNKNOWN_USER',
+    label: 'Unverified Sender ID',
+    badge: '👤 Unverified Sender',
+    isHighRiskVector: true,
+    description: `Sender "${clean}" is not saved in contacts and has no verified commercial telecom registry.`
+  };
+}
+
+// Deep QR Code & Quishing Analysis Engine
+export function analyzeQrCode(rawPayload: string): QrCodeAnalysis {
+  const trimmed = rawPayload.trim();
+
+  // 1. UPI Payment Request / Reverse-Debit Trap QR Check
+  if (/^upi:\/\/(pay|mandate|collect)\?/i.test(trimmed)) {
+    try {
+      const urlObj = new URL(trimmed.replace(/^upi:\/\//i, 'https://upi/'));
+      const params = urlObj.searchParams;
+      const pa = params.get('pa') || 'unknown@upi';
+      const pn = decodeURIComponent(params.get('pn') || 'Payment Gateway');
+      const am = params.get('am') || '';
+      const cu = params.get('cu') || 'INR';
+      const tn = decodeURIComponent(params.get('tn') || '');
+
+      const isLure = /(receive|claim|reward|cashback|refund|won|winner|lottery|prize|advance|olx|buyer|salary|credit|deposit|bonus)/i.test(tn) ||
+                     /(receive|claim|reward|cashback|refund|won|prize)/i.test(pn);
+
+      // In UPI, scanning a QR code is ALWAYS an OUTGOING debit request from the scanner's account.
+      // If someone sends a QR claiming "Scan to receive ₹500" or there is an amount specified, it's 100% a Reverse Debit Trap!
+      const isReverseDebitFraud = Boolean(am || isLure);
+
+      if (isReverseDebitFraud) {
+        const amountDisplay = am ? `₹${parseFloat(am).toFixed(2)}` : 'Requested Amount';
+        return {
+          raw_payload: trimmed,
+          qr_category: 'UPI_PAYMENT_TRAP',
+          title: '🚨 CRITICAL FRAUD: REVERSE UPI DEBIT ATTACK',
+          risk_score: 98,
+          risk_level: 'CRITICAL',
+          fraud_mechanism: `Reverse UPI Payment Trap: The scammer claimed this QR code will "RECEIVE" ${amountDisplay}. In reality, scanning this QR code in Google Pay / PhonePe / Paytm will DEBIT ${amountDisplay} FROM YOUR BANK ACCOUNT and transfer it to VPA: ${pa} (${pn}).`,
+          warning_highlight: `⚠️ GOLDEN SECURITY RULE: You NEVER need to scan a QR code or enter your UPI PIN to RECEIVE money in India! Scanning a QR code only SENDS money. This QR is configured to DEDUCT ${amountDisplay} from your balance!`,
+          countermeasures: [
+            'DO NOT SCAN this QR code in Google Pay, PhonePe, Paytm, BHIM, or any banking app.',
+            'NEVER enter your UPI PIN. UPI PIN is exclusively for authorizing OUTGOING debits from your bank account.',
+            `Report this fraudulent VPA (${pa}) immediately to 1930 / cybercrime.gov.in.`,
+            'Block the scammer on WhatsApp / SMS immediately.'
+          ],
+          upi_data: {
+            payee_vpa: pa,
+            payee_name: pn,
+            amount: am,
+            currency: cu,
+            transaction_note: tn,
+            is_reverse_debit_fraud: true
+          }
+        };
+      } else {
+        return {
+          raw_payload: trimmed,
+          qr_category: 'SAFE_PAYMENT',
+          title: 'Standard UPI Payment Request',
+          risk_score: 25,
+          risk_level: 'LOW',
+          fraud_mechanism: `Standard UPI transfer link to payee ${pn} (${pa}). Scanning will prompt you to transfer funds to this recipient.`,
+          warning_highlight: `Legitimate UPI merchant/individual payment string. Always verify the merchant name on your screen before typing your PIN.`,
+          countermeasures: [
+            `Verify the payee name (${pn}) matches the in-person merchant before confirming.`,
+            'Ensure the transaction amount matches your purchase.'
+          ],
+          upi_data: {
+            payee_vpa: pa,
+            payee_name: pn,
+            amount: am,
+            currency: cu,
+            transaction_note: tn,
+            is_reverse_debit_fraud: false
+          }
+        };
+      }
+    } catch {
+      // Fallback if parsing fails
+    }
+  }
+
+  // 2. URL or Web Destination QR (Quishing / Phishing)
+  const urlMatches = extractUrlsAndAnalyze(trimmed);
+  if (urlMatches.length > 0 || /^https?:\/\//i.test(trimmed)) {
+    const urlInfo = urlMatches[0] || {
+      original: trimmed,
+      domain: trimmed.replace(/^https?:\/\//i, '').split('/')[0],
+      isHttps: trimmed.startsWith('https://'),
+      hasSuspiciousTld: false,
+      isShortener: false,
+      isIpAddress: false,
+      isTyposquat: false,
+      riskScore: 50,
+      threats: []
+    };
+
+    const isApk = /\.apk(\?|$|#)/i.test(trimmed);
+    if (isApk) {
+      return {
+        raw_payload: trimmed,
+        qr_category: 'APK_MALWARE_DROPPER',
+        title: '🚨 DANGEROUS MALWARE DROPPER QR',
+        risk_score: 96,
+        risk_level: 'CRITICAL',
+        fraud_mechanism: 'Direct Android APK Dropper: Scanning this QR downloads an unverified APK payload that can intercept SMS, read OTPs, and hijack banking credentials.',
+        warning_highlight: 'Weaponized QR code delivering untrusted Android installation binary.',
+        countermeasures: [
+          'DO NOT allow APK download in your mobile browser.',
+          'Never install banking, reward, or support apps from outside Google Play Store.',
+          'Verify your phone Downloads folder and delete suspicious .apk files.'
+        ],
+        url_data: {
+          destination_url: trimmed,
+          domain: urlInfo.domain,
+          is_phishing: true
+        }
+      };
+    }
+
+    if (urlInfo.riskScore >= 60 || urlInfo.isTyposquat || urlInfo.hasSuspiciousTld) {
+      return {
+        raw_payload: trimmed,
+        qr_category: 'PHISHING_URL',
+        title: '🚨 PHISHING PORTAL QUISHING ATTACK',
+        risk_score: Math.max(90, urlInfo.riskScore),
+        risk_level: 'CRITICAL',
+        fraud_mechanism: `Quishing (QR Phishing): Embeds a fraudulent portal (${urlInfo.domain}) inside a QR code to bypass SMS/email spam filters and trick mobile users into entering credentials.`,
+        warning_highlight: `Target domain exhibits malicious indicators: ${urlInfo.threats.join('; ') || 'Deceptive lookalike hostname'}.`,
+        countermeasures: [
+          'Do NOT visit this link or enter netbanking credentials, passwords, or OTPs.',
+          'Report the phishing domain to CERT-In / cybercrime.gov.in.',
+          'Official banking sites never ask you to scan random QRs to update KYC.'
+        ],
+        url_data: {
+          destination_url: trimmed,
+          domain: urlInfo.domain,
+          is_phishing: true,
+          typosquat_brand: urlInfo.spoofedBrand,
+          tld: urlInfo.domain.split('.').pop()
+        }
+      };
+    }
+
+    return {
+      raw_payload: trimmed,
+      qr_category: 'SAFE_WEBSITE',
+      title: 'Verified Safe Web Destination',
+      risk_score: 5,
+      risk_level: 'LOW',
+      fraud_mechanism: 'Authentic web URL destination.',
+      warning_highlight: `Destination host (${urlInfo.domain}) is clean with zero active blacklist flags.`,
+      countermeasures: ['Standard safe browsing habits.'],
+      url_data: {
+        destination_url: trimmed,
+        domain: urlInfo.domain,
+        is_phishing: false
+      }
+    };
+  }
+
+  // 3. Wi-Fi Configuration QR (WIFI:S:SSID;T:WPA;P:PASSWORD;;)
+  if (/^WIFI:/i.test(trimmed)) {
+    return {
+      raw_payload: trimmed,
+      qr_category: 'WIFI_EXPLOIT',
+      title: 'Wi-Fi Network Configuration QR',
+      risk_score: 45,
+      risk_level: 'SUSPICIOUS',
+      fraud_mechanism: 'Automatic Wi-Fi Association: Configures device to automatically join a wireless network. Evil Twin / Rogue Access Points use this to intercept unencrypted traffic.',
+      warning_highlight: 'Ensure you recognize the Wi-Fi SSID network before approving network connection.',
+      countermeasures: [
+        'Only connect if in a trusted location (e.g. your home or known office).',
+        'Avoid connecting to public open Wi-Fi QRs without an active VPN.'
+      ]
+    };
+  }
+
+  return {
+    raw_payload: trimmed,
+    qr_category: 'UNKNOWN_FORMAT',
+    title: 'Text / Unclassified QR Code',
+    risk_score: 15,
+    risk_level: 'LOW',
+    fraud_mechanism: 'Raw text or arbitrary data string payload.',
+    warning_highlight: 'No direct UPI debit or known malicious URL recognized.',
+    countermeasures: ['Inspect raw payload content before taking actions.']
+  };
+}
+
+export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN', isUnknownSender?: boolean): Partial<ScanRecord> {
   const text = payload.toLowerCase();
   const trimmed = payload.trim();
+
+  // Classify sender intelligence
+  const senderClassification = classifySender(sender, isUnknownSender === false ? true : (isUnknownSender === true ? false : undefined));
+  const isActuallyUnknown = isUnknownSender === true || senderClassification.isHighRiskVector || sender === 'UNKNOWN';
+
+  // Check if payload is a QR code payload (e.g. UPI deep link, QR_CODE prefix, or direct QR scan)
+  const isQrCodePayload = /^upi:\/\/(pay|mandate|collect)\?/i.test(trimmed) || 
+                          trimmed.startsWith('QR_CODE:') || 
+                          trimmed.startsWith('WIFI:') ||
+                          (trimmed.includes('upi://pay?') && trimmed.length < 300);
+
+  if (isQrCodePayload) {
+    const cleanQrString = trimmed.replace(/^QR_CODE:\s*/i, '');
+    const qrAnalysis = analyzeQrCode(cleanQrString);
+
+    const journeyNodes: JourneyNode[] = [
+      {
+        id: 'node-qr-source',
+        label: `QR Source: ${sender}`,
+        type: 'phone',
+        status: senderClassification.isHighRiskVector ? 'warning' : 'neutral',
+        stage: 'OBSERVED',
+        details: senderClassification.description
+      },
+      {
+        id: 'node-qr-payload',
+        label: qrAnalysis.title,
+        type: qrAnalysis.qr_category === 'UPI_PAYMENT_TRAP' ? 'payment' : 'url',
+        status: qrAnalysis.risk_score >= 80 ? 'flagged' : (qrAnalysis.risk_score >= 40 ? 'warning' : 'neutral'),
+        stage: 'CURRENT',
+        details: qrAnalysis.fraud_mechanism
+      }
+    ];
+
+    if (qrAnalysis.upi_data?.is_reverse_debit_fraud) {
+      journeyNodes.push({
+        id: 'node-qr-debit',
+        label: `Reverse Debit Trap: -₹${qrAnalysis.upi_data.amount || '500'}`,
+        type: 'payment',
+        status: 'blocked',
+        stage: 'PREDICTED',
+        details: `Victim tricked into entering UPI PIN expecting credit, resulting in unauthorized debit to ${qrAnalysis.upi_data.payee_vpa}`
+      });
+    }
+
+    return {
+      scan_type: 'qr',
+      raw_payload: cleanQrString,
+      sender,
+      is_unknown_sender: isActuallyUnknown,
+      sender_classification: senderClassification,
+      qr_analysis: qrAnalysis,
+      risk_score: qrAnalysis.risk_score,
+      risk_level: qrAnalysis.risk_level,
+      scam_category: qrAnalysis.title,
+      indicators: [
+        qrAnalysis.fraud_mechanism,
+        qrAnalysis.warning_highlight,
+        ...(isActuallyUnknown ? [`Sent by unverified sender (${sender}) with no verified contact history`] : [])
+      ],
+      explanation: `${qrAnalysis.title}: ${qrAnalysis.fraud_mechanism} ${qrAnalysis.warning_highlight}`,
+      predicted_next_step: qrAnalysis.countermeasures[0] || 'Do not scan or authorize this QR code.',
+      journey_nodes: journeyNodes,
+      next_moves: [
+        {
+          type: qrAnalysis.qr_category === 'UPI_PAYMENT_TRAP' ? 'Unauthorized UPI Account Drain' : 'Malicious Redirection',
+          confidence: 98,
+          why: [qrAnalysis.fraud_mechanism],
+          action_label: qrAnalysis.countermeasures[0] || 'REJECT QR SCAN'
+        }
+      ],
+      actions: {
+        block: qrAnalysis.risk_score >= 70 ? 'Block sender and discard QR code immediately.' : undefined,
+        avoid: 'Never scan QR codes sent via chat to receive money.',
+        report: 'Report fraudulent QR/VPA to 1930 / cybercrime.gov.in.'
+      },
+      was_auto_blocked: qrAnalysis.risk_score >= 70
+    };
+  }
+
   const urlInfos = extractUrlsAndAnalyze(payload);
 
   // 0. Instant detection of Casual Greetings & Everyday Personal Chat (e.g. "Hii", "Hello", "Hey", "Good morning", "Kaise ho", "bhai", "kaha ho")
@@ -278,9 +619,49 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
   );
 
   if (isCasualGreeting) {
+    // If greeting is from an unknown number: give low risk (10-15) with an informative caution badge
+    // (In cybercrime, scammers often start conversations with 'Hii' from unknown numbers to test active lines)
+    if (isActuallyUnknown && sender !== 'UNKNOWN') {
+      return {
+        risk_score: 12,
+        risk_level: 'LOW',
+        is_unknown_sender: true,
+        sender_classification: senderClassification,
+        scam_category: 'Unsaved Contact Opening Greeting (Low Risk)',
+        indicators: [
+          `Message originated from unsaved number (${sender})`,
+          'Zero malicious links or credential harvesting detected in current message',
+          'Note: Scammers often open with friendly greetings before presenting fraudulent schemes'
+        ],
+        explanation: `Safe Opening Greeting from Unsaved Contact: "${trimmed}" is a routine greeting from an unsaved number (${sender}). While current payload poses zero threat, exercise caution before responding to future financial or task requests from unknown numbers.`,
+        predicted_next_step: 'Opening conversation; verify identity before clicking any future links.',
+        journey_nodes: [
+          { id: 'node-sender', label: `Unsaved Number: ${sender}`, type: 'phone', status: 'warning', stage: 'OBSERVED', details: 'Unsaved mobile contact' },
+          { id: 'node-msg', label: `Greeting: "${trimmed}"`, type: 'sms', status: 'neutral', stage: 'CURRENT', details: 'Opening casual text' }
+        ],
+        next_moves: [
+          {
+            type: 'Opening Greeting',
+            confidence: 90,
+            why: ['Friendly text from unsaved number; no active threat vectors present'],
+            action_label: 'VERIFY SENDER IDENTITY'
+          }
+        ],
+        actions: {
+          block: undefined,
+          avoid: 'Do not share personal details or money if unknown sender later asks.',
+          report: 'No action required.'
+        },
+        was_auto_blocked: false
+      };
+    }
+
+    // Normal casual greeting from known contact or simulator
     return {
       risk_score: 0,
       risk_level: 'LOW',
+      is_unknown_sender: isActuallyUnknown,
+      sender_classification: senderClassification,
       scam_category: 'Casual Conversation / Benign Message',
       indicators: [
         'Normal conversational human greeting / personal message',
@@ -316,18 +697,18 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
   const journeyNodes: JourneyNode[] = [];
   const nextMoves: NextMovePrediction[] = [];
   
-  // Sender analysis
-  const senderIsAlpha = /^[a-zA-Z]{2}-[a-zA-Z]{6}$/i.test(sender); // Indian official header e.g. AX-HDFCBK
-  const isSpoofedSender = sender.toUpperCase().includes('SBI') || sender.toUpperCase().includes('HDFC') || sender.toUpperCase().includes('BANK');
+  // Sender analysis & Unknown Sender Escalation
+  const senderIsAlpha = senderClassification.type === 'REGISTERED_BANK_DLT';
+  const isSpoofedSender = senderClassification.type === 'SPOOFED_ALPHANUMERIC';
   
   if (sender !== 'UNKNOWN') {
     journeyNodes.push({
       id: 'node-sender',
-      label: `Sender: ${sender}`,
+      label: `${senderClassification.badge}: ${sender}`,
       type: 'phone',
-      status: senderIsAlpha ? 'neutral' : 'warning',
+      status: senderIsAlpha ? 'neutral' : (senderClassification.isHighRiskVector ? 'flagged' : 'warning'),
       stage: 'OBSERVED',
-      details: senderIsAlpha ? 'Registered Telecom Sender Header' : 'Unverified mobile number / VoIP line'
+      details: senderClassification.description
     });
   }
 
@@ -572,6 +953,17 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
     }
   }
 
+  // Unknown Sender Fraud Risk Escalation:
+  // If the communication originated from an unknown / unsaved number AND exhibits ANY suspicious triggers,
+  // substantially escalate the threat score and elevate scrutiny.
+  if (isActuallyUnknown && score > 0) {
+    score = Math.min(100, score + 25);
+    indicators.unshift(`🚨 UNKNOWN SENDER FRAUD VECTOR: Message received from unsaved/unverified number (${sender}). Scammers predominantly use untracked burner SIMs or VoIP gateways.`);
+    if (category === 'Legitimate / Informational Notification') {
+      category = 'Unverified Unknown Sender Solicitation';
+    }
+  }
+
   const finalScore = Math.min(100, Math.max(score, urlInfos.length > 0 && score === 0 ? 30 : 0));
   
   let riskLevel: RiskLevel = 'LOW';
@@ -581,9 +973,9 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
 
   let explanation = '';
   if (riskLevel === 'CRITICAL' || riskLevel === 'HIGH') {
-    explanation = `High-confidence malicious campaign detected (${category}). The payload combines psychological urgency triggers with weaponized links or social-engineering coercions to harvest credentials or execute unauthorized debits.`;
+    explanation = `High-confidence malicious campaign detected (${category}). The payload combines psychological urgency triggers with weaponized links or social-engineering coercions from ${isActuallyUnknown ? 'an unknown sender' : 'the source'} to harvest credentials or execute unauthorized debits.`;
   } else if (riskLevel === 'SUSPICIOUS') {
-    explanation = `Elevated risk indicators observed. The communication uses unsolicited marketing or shortened redirection links that warrant independent verification before engagement.`;
+    explanation = `Elevated risk indicators observed. The communication uses unsolicited marketing or redirection links${isActuallyUnknown ? ' from an unverified number' : ''} that warrant independent verification before engagement.`;
   } else {
     explanation = `Payload appears informational or benign with no recognized malicious patterns or credential harvesting payloads.`;
   }
@@ -592,6 +984,8 @@ export function evaluateThreatLocally(payload: string, sender = 'UNKNOWN'): Part
     risk_score: finalScore,
     risk_level: riskLevel,
     scam_category: category,
+    is_unknown_sender: isActuallyUnknown,
+    sender_classification: senderClassification,
     indicators: Array.from(new Set(indicators)),
     explanation,
     predicted_next_step: nextMoves[0]?.type ? `${nextMoves[0].type}: ${nextMoves[0].why.join('; ')}` : 'No malicious progression anticipated.',

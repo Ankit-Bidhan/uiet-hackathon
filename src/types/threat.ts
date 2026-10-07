@@ -31,11 +31,50 @@ export interface ThreatMemoryContext {
   is_new: boolean
 }
 
+export type SenderClassificationType = 'SAVED_CONTACT' | 'UNKNOWN_NUMBER' | 'REGISTERED_BANK_DLT' | 'SPOOFED_ALPHANUMERIC' | 'UNKNOWN_USER'
+
+export interface SenderClassification {
+  type: SenderClassificationType
+  label: string
+  badge: string
+  isHighRiskVector: boolean
+  description: string
+}
+
+export interface QrCodeAnalysis {
+  raw_payload: string
+  qr_category: 'UPI_PAYMENT_TRAP' | 'PHISHING_URL' | 'APK_MALWARE_DROPPER' | 'WIFI_EXPLOIT' | 'SAFE_WEBSITE' | 'SAFE_PAYMENT' | 'UNKNOWN_FORMAT'
+  title: string
+  risk_score: number
+  risk_level: RiskLevel
+  fraud_mechanism: string
+  warning_highlight: string
+  countermeasures: string[]
+  upi_data?: {
+    payee_vpa?: string
+    payee_name?: string
+    amount?: string
+    currency?: string
+    transaction_note?: string
+    is_reverse_debit_fraud: boolean
+  }
+  url_data?: {
+    destination_url: string
+    domain: string
+    is_phishing: boolean
+    typosquat_brand?: string
+    tld?: string
+  }
+}
+
 export interface ScanRecord {
   id: string
   scan_type: ScanType
   raw_payload: string
   sender?: string
+  is_unknown_sender?: boolean
+  sender_classification?: SenderClassification
+  qr_analysis?: QrCodeAnalysis
   extracted_urls?: string[]
   risk_score: number // 0-100
   risk_level: RiskLevel
@@ -74,6 +113,8 @@ export interface IncomingSms {
   isAutoBlocked: boolean
   isQuarantined: boolean
   urls: string[]
+  isUnknownSender?: boolean
+  senderClassification?: SenderClassification
   scanRecord?: ScanRecord
 }
 
