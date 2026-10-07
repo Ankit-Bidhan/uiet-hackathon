@@ -20,8 +20,16 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
   const addToast = useCallback((toast: Omit<ToastNotification, 'id'>) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    setToasts((prev) => [{ ...toast, id }, ...prev.slice(0, 3)]);
+    setToasts((prev) => {
+      // Prevent duplicate toasts for the same message/event within 3 seconds
+      const isDuplicate = prev.some(
+        (t) => t.subtitle === toast.subtitle || (t.title === toast.title && t.category === toast.category)
+      );
+      if (isDuplicate) return prev;
+
+      const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      return [{ ...toast, id }, ...prev.slice(0, 2)];
+    });
   }, []);
 
   const dismissToast = useCallback((id: string) => {

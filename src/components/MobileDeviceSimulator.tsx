@@ -50,17 +50,11 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
     return () => clearInterval(t);
   }, []);
 
-  // Set default selected message
-  useEffect(() => {
-    if (incomingSmsList.length > 0 && !selectedSms) {
-      setSelectedSms(incomingSmsList[0]);
-    }
-  }, [incomingSmsList, selectedSms]);
-
-  // Handle heads up alert when a new SMS arrives
+  // Auto-select latest incoming message so the phone screen always reflects the newest arrived SMS
   useEffect(() => {
     if (incomingSmsList.length > 0) {
       const latest = incomingSmsList[0];
+      setSelectedSms(latest);
       setHeadsUpAlert(latest);
       const timer = setTimeout(() => {
         setHeadsUpAlert(null);
@@ -69,16 +63,18 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
     }
   }, [incomingSmsList]);
 
-  // Real-time automatic telecom stream generator
+  // Real-time automatic telecom stream generator with BOTH genuine safe and malicious scam messages
   useEffect(() => {
     if (!autoStreamActive) return;
 
     const testPool = [
+      { sender: 'AX-HDFCBK', body: 'Dear Customer, INR 2,450.00 debited from A/C XX4921 on 07-OCT. Avl Bal: INR 38,150.00. UPI Ref: 429184910283. If not done by you, SMS BLOCK to 5676712.' },
       { sender: 'POLICE-CBI', body: 'CRITICAL NOTICE: FIR #4928 lodged by Cyber Crime Cell Mumbai against your Aadhaar. Illegal parcel seized. Contact Investigating Officer immediately at +919830192837 or face digital arrest.' },
+      { sender: 'VK-SBIINB', body: '582910 is your login OTP for OnlineSBI NetBanking. Valid for 5 minutes. Do not share with anyone including SBI staff.' },
       { sender: 'POWER-DEPT', body: 'Dear Consumer, your electricity power line will be disconnected tonight at 9:30 PM due to pending bill update. Immediately contact power officer Sharma at +919128392819.' },
-      { sender: 'TELEGRAM-HR', body: 'Part-Time Job Opportunity: Earn Rs 4,500 - 8,000 daily by simply rating travel videos. 100% genuine daily payout. Contact recruiter: https://t.me/travel_rating_hr' },
+      { sender: 'JM-SWIGGY', body: 'Swiggy Update: Your order #84928 from Haldiram is out for delivery with partner Ramesh. Track live in Swiggy app.' },
       { sender: 'IND-POST', body: 'India Post: Your package #IN94829 is on hold at Mumbai sorting depot due to incorrect address and unpaid customs surcharge of Rs 3.99. Rectify here: http://ind-post-tracking.xyz/pay' },
-      { sender: 'UPI-CASHBACK', body: 'Congratulations! You have received ₹3,499 GooglePay scratch card cashback. Click to claim into bank account: http://gpay-reward-claim.top/scratch' }
+      { sender: 'TELEGRAM-HR', body: 'Part-Time Job Opportunity: Earn Rs 4,500 - 8,000 daily by simply rating travel videos. 100% genuine daily payout. Contact recruiter: https://t.me/travel_rating_hr' }
     ];
 
     let idx = 0;
@@ -141,8 +137,16 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
 
           {/* Real-Time Heads-Up Notification Banner (Slide down overlay) */}
           {headsUpAlert && (
-            <div className="absolute top-9 left-2 right-2 z-40 animate-in slide-in-from-top-6 duration-300">
-              <div className={`p-3 rounded-2xl border shadow-xl backdrop-blur-md ${
+            <div 
+              onClick={() => {
+                playCyberClick();
+                setSelectedSms(headsUpAlert);
+                setActiveApp('messages');
+                setHeadsUpAlert(null);
+              }}
+              className="absolute top-9 left-2 right-2 z-40 animate-in slide-in-from-top-6 duration-300 cursor-pointer"
+            >
+              <div className={`p-3 rounded-2xl border shadow-xl backdrop-blur-md transition-all hover:scale-[1.01] ${
                 headsUpAlert.isAutoBlocked 
                   ? 'bg-red-950/95 border-red-500 text-white' 
                   : 'bg-slate-900/95 border-slate-700 text-slate-100'
