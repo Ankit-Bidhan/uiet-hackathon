@@ -1,19 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, ShieldAlert, ShieldCheck, Smartphone, Send, Globe, MessageSquare, 
-  Settings, RefreshCw, Zap, Bell, CheckCircle, ExternalLink, Play, Pause, ChevronRight, Lock, Eye
+  Settings, RefreshCw, Zap, Bell, CheckCircle, ExternalLink, Play, Pause, ChevronRight, Lock, Eye, Trash2, Radio
 } from 'lucide-react';
 import type { IncomingSms, ScanRecord, BlockedUrlRecord } from '../types/threat';
 import { playCyberClick, playCyberScan, playThreatAlarm, playSafeShieldSound } from '../lib/audio';
 
 interface MobileDeviceSimulatorProps {
   incomingSmsList: IncomingSms[];
-  onInjectSms: (sender: string, body: string) => Promise<void>;
+  onInjectSms: (sender: string, body: string) => Promise<any>;
   onInspectScan: (scan: ScanRecord) => void;
   onInterceptUrl: (url: string, source: string) => Promise<void>;
   shieldActive: boolean;
   onToggleShield: () => void;
   blockedUrls: BlockedUrlRecord[];
+  onClearHistory?: () => void;
+  onNavigateBridge?: () => void;
 }
 
 export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
@@ -23,7 +25,9 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
   onInterceptUrl,
   shieldActive,
   onToggleShield,
-  blockedUrls
+  blockedUrls,
+  onClearHistory,
+  onNavigateBridge
 }) => {
   const [activeApp, setActiveApp] = useState<'messages' | 'shield' | 'browser'>('messages');
   const [selectedSms, setSelectedSms] = useState<IncomingSms | null>(null);
@@ -32,8 +36,8 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
   const [headsUpAlert, setHeadsUpAlert] = useState<IncomingSms | null>(null);
 
   // Custom injector form
-  const [customSender, setCustomSender] = useState('AD-HDFCBK');
-  const [customBody, setCustomBody] = useState('ALERT: Your HDFC Debit Card is locked due to suspicious login. Re-activate here: http://hdfc-card-verify.top/auth');
+  const [customSender, setCustomSender] = useState('VK-SBIINB');
+  const [customBody, setCustomBody] = useState('SBI Alert: Dear customer, your NetBanking access is disabled. Reactivate PAN KYC at https://sbi-kyc-portal.cc/login immediately.');
 
   // Auto-stream telecom simulation
   const [autoStreamActive, setAutoStreamActive] = useState(false);
@@ -63,29 +67,39 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
     }
   }, [incomingSmsList]);
 
+  // Keep ref to onInjectSms to ensure stable interval callback without triggering re-runs
+  const onInjectSmsRef = useRef(onInjectSms);
+  useEffect(() => {
+    onInjectSmsRef.current = onInjectSms;
+  }, [onInjectSms]);
+
+  // Persistent index so it rotates through ALL archetypes and never repeats just HDFC!
+  const streamIdxRef = useRef(0);
+
   // Real-time automatic telecom stream generator with BOTH genuine safe and malicious scam messages
   useEffect(() => {
     if (!autoStreamActive) return;
 
     const testPool = [
-      { sender: 'AX-HDFCBK', body: 'Dear Customer, INR 2,450.00 debited from A/C XX4921 on 07-OCT. Avl Bal: INR 38,150.00. UPI Ref: 429184910283. If not done by you, SMS BLOCK to 5676712.' },
+      { sender: 'JM-SWIGGY', body: 'Swiggy Alert: Your food order #84928 is out for delivery with partner Ramesh. Track live in the Swiggy mobile app.' },
       { sender: 'POLICE-CBI', body: 'CRITICAL NOTICE: FIR #4928 lodged by Cyber Crime Cell Mumbai against your Aadhaar. Illegal parcel seized. Contact Investigating Officer immediately at +919830192837 or face digital arrest.' },
-      { sender: 'VK-SBIINB', body: '582910 is your login OTP for OnlineSBI NetBanking. Valid for 5 minutes. Do not share with anyone including SBI staff.' },
       { sender: 'POWER-DEPT', body: 'Dear Consumer, your electricity power line will be disconnected tonight at 9:30 PM due to pending bill update. Immediately contact power officer Sharma at +919128392819.' },
-      { sender: 'JM-SWIGGY', body: 'Swiggy Update: Your order #84928 from Haldiram is out for delivery with partner Ramesh. Track live in Swiggy app.' },
-      { sender: 'IND-POST', body: 'India Post: Your package #IN94829 is on hold at Mumbai sorting depot due to incorrect address and unpaid customs surcharge of Rs 3.99. Rectify here: http://ind-post-tracking.xyz/pay' },
-      { sender: 'TELEGRAM-HR', body: 'Part-Time Job Opportunity: Earn Rs 4,500 - 8,000 daily by simply rating travel videos. 100% genuine daily payout. Contact recruiter: https://t.me/travel_rating_hr' }
+      { sender: 'VK-SBIINB', body: '582910 is your login OTP for OnlineSBI NetBanking. Valid for 5 minutes. Do not share with anyone including SBI staff.' },
+      { sender: 'IND-POST', body: 'India Post: Your package #IN94829 is on hold at Mumbai sorting depot due to incorrect address and unpaid customs surcharge of Rs 3.99. Rectify here: http://track-parcel-indpost.top/pay-3.99' },
+      { sender: 'TELEGRAM-HR', body: 'Part-Time Job Opportunity: Earn Rs 4,500 - 8,000 daily by simply rating YouTube videos. 100% genuine daily payout. Contact recruiter: http://youtubee.com/claim-task' },
+      { sender: 'AX-HDFCBK', body: 'Dear Customer, INR 2,450.00 debited from A/C XX4921 on 07-OCT. Avl Bal: INR 38,150.00. UPI Ref: 429184910283. If not done by you, SMS BLOCK to 5676712.' },
+      { sender: 'AD-SBIBNK', body: 'SBI ALERT: Dear customer, your YONO NetBanking account is suspended due to expired PAN KYC. Update immediately at https://sbi-kyc-portal.cc/login to prevent permanent block.' },
+      { sender: 'AMZ-DEALS', body: 'Amazon Order #402-91823 failed dispatch. Claim instant refund of INR 3,899 by verifying your details at: http://amazn-refund.cc/claim' }
     ];
 
-    let idx = 0;
     const interval = setInterval(() => {
-      const item = testPool[idx % testPool.length];
-      idx++;
-      onInjectSms(item.sender, item.body);
-    }, 12000);
+      const item = testPool[streamIdxRef.current % testPool.length];
+      streamIdxRef.current += 1;
+      onInjectSmsRef.current(item.sender, item.body);
+    }, 14000);
 
     return () => clearInterval(interval);
-  }, [autoStreamActive, onInjectSms]);
+  }, [autoStreamActive]);
 
   const handleQuickInject = async (sender: string, body: string) => {
     playCyberClick();
@@ -304,13 +318,34 @@ export const MobileDeviceSimulator: React.FC<MobileDeviceSimulatorProps> = ({
                   /* Inbox Message List */
                   <div className="p-3 space-y-2">
                     <div className="text-[11px] font-mono text-slate-400 px-1 py-1 flex items-center justify-between">
-                      <span>INCOMING SMS LOG ({incomingSmsList.length})</span>
-                      <span className="text-cyan-400">Live Auto-Monitoring</span>
+                      <span className="font-bold text-slate-300">INCOMING SMS LOG ({incomingSmsList.length})</span>
+                      <div className="flex items-center gap-2">
+                        {onClearHistory && (
+                          <button
+                            onClick={onClearHistory}
+                            className="text-[10px] text-red-400 hover:text-red-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Reset all message records"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Clear All</span>
+                          </button>
+                        )}
+                        {onNavigateBridge && (
+                          <button
+                            onClick={onNavigateBridge}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Radio className="w-3 h-3" />
+                            <span>Phone Bridge</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {incomingSmsList.length === 0 ? (
-                      <div className="py-16 text-center text-xs text-slate-500 font-mono">
-                        No incoming messages yet.<br />Use the Test Station on the right to send an SMS!
+                      <div className="py-16 text-center text-xs text-slate-500 font-mono space-y-2">
+                        <div>No messages currently in inbox.</div>
+                        <div className="text-[11px] text-cyan-400">Use the 1-Click Test Station or connect your phone via Phone Bridge!</div>
                       </div>
                     ) : (
                       incomingSmsList.map((sms) => (

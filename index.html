@@ -12,6 +12,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully prevent unhandled rejection noise for environment WebSocket disconnects
+      window.addEventListener('unhandledrejection', function(e) {
+        if (e.reason && (
+          String(e.reason).includes('WebSocket') ||
+          String(e.reason.message || '').includes('WebSocket')
+        )) {
+          e.preventDefault();
+        }
+      });
+      window.addEventListener('error', function(e) {
+        if (e.message && String(e.message).includes('WebSocket')) {
+          e.preventDefault();
+        }
+      });
+    </script>
   </head>
   <body class="bg-[#050811] text-slate-100 antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
     <div id="root"></div>

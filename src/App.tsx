@@ -5,6 +5,7 @@ import { ForensicCommandCenter } from './components/ForensicCommandCenter';
 import { ThreatDashboard } from './components/ThreatDashboard';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { LiveNotificationBridge } from './components/LiveNotificationBridge';
+import { MobileCompanionView } from './components/MobileCompanionView';
 import { PhishingBlockModal } from './components/PhishingBlockModal';
 import { GlobalToastContainer, ToastNotification } from './components/GlobalToastContainer';
 import type { ScanRecord, IncomingSms, BlockedUrlRecord } from './types/threat';
@@ -19,6 +20,13 @@ export default function App() {
   const [activeScan, setActiveScan] = useState<ScanRecord | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  // Check if opened as Mobile Companion (via QR scan or ?view=companion)
+  const [isCompanionMode, setIsCompanionMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('view') === 'companion' || params.get('view') === 'phone';
+  });
 
   const addToast = useCallback((toast: Omit<ToastNotification, 'id'>) => {
     setToasts((prev) => {
@@ -154,6 +162,12 @@ export default function App() {
           }
         } catch {}
       });
+      eventSource.addEventListener('REFRESH', () => {
+        setIncomingSmsList([]);
+        setScans([]);
+        setBlockedUrls([]);
+        setActiveScan(null);
+      });
     } catch (err) {
       console.warn('SSE stream error:', err);
     }
@@ -163,8 +177,8 @@ export default function App() {
     };
   }, []);
 
-  // Real-Time SMS Injection Trigger
-  const handleInjectSms = async (sender: string, body: string) => {
+  // Real-Time SMS Injection Trigger (Memoized with useCallback to maintain stable reference)
+  const handleInjectSms = useCallback(async (sender: string, body: string) => {
     try {
       const res = await fetch('/api/sms/incoming', {
         method: 'POST',
@@ -173,28 +187,18 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
+        // Fallback state update in case SSE event has slight latency
         if (data.incomingSms) {
           const item = data.incomingSms;
-          setIncomingSmsList((prev) => [item, ...prev.filter((x) => x.id !== item.id)]);
-          if (item.scanRecord) {
-            setScans((prev) => [item.scanRecord, ...prev.filter((x) => x.id !== item.scanRecord.id)]);
-          }
-
-          // Direct toast notification trigger (Guaranteed 100% immediate visual feedback)
-          addToast({
-            type: item.isAutoBlocked ? 'sms_blocked' : 'sms_received',
-            title: item.isAutoBlocked ? '🛑 SMS Auto-Quarantined' : '💬 Incoming SMS Inspected',
-            subtitle: `${item.sender}: ${item.body}`,
-            riskScore: item.riskScore,
-            category: item.category,
-            timestamp: item.receivedAt,
-            data: item.scanRecord
+          setIncomingSmsList((prev) => {
+            if (prev.some((x) => x.id === item.id)) return prev;
+            return [item, ...prev];
           });
-
-          if (data.blocked) {
-            playThreatAlarm();
-          } else {
-            playSafeShieldSound();
+          if (item.scanRecord) {
+            setScans((prev) => {
+              if (prev.some((x) => x.id === item.scanRecord!.id)) return prev;
+              return [item.scanRecord!, ...prev];
+            });
           }
           return data;
         }
@@ -203,7 +207,26 @@ export default function App() {
       console.error('Failed to inject SMS:', err);
     }
     return null;
-  };
+  }, []);
+
+  // Clear all demo and quarantined threat history
+  const handleClearHistory = useCallback(async () => {
+    playCyberClick();
+    try {
+      await fetch('/api/threats/clear', { method: 'POST' });
+    } catch {}
+    setScans([]);
+    setIncomingSmsList([]);
+    setBlockedUrls([]);
+    setActiveScan(null);
+    addToast({
+      type: 'new_scan',
+      title: '🧹 Threat History Cleared',
+      subtitle: 'All demonstration logs reset. System ready for fresh testing.',
+      riskScore: 0,
+      timestamp: new Date().toISOString()
+    });
+  }, [addToast]);
 
   // Real-Time URL Intercept Gatekeeper
   const handleInterceptUrl = async (url: string, source: string) => {
@@ -291,6 +314,11 @@ export default function App() {
     setActiveTab('forensics');
   };
 
+  // If opened directly on mobile device via QR Code or companion URL, show dedicated Mobile Companion Portal
+  if (isCompanionMode) {
+    return <MobileCompanionView onExit={() => setIsCompanionMode(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#040711] text-slate-100 flex flex-col font-sans">
       {/* Header */}
@@ -307,6 +335,7 @@ export default function App() {
           setShieldActive(!shieldActive);
           if (!shieldActive) playSafeShieldSound();
         }}
+        onClearHistory={handleClearHistory}
       />
 
       {/* Main Content Area */}
@@ -320,6 +349,8 @@ export default function App() {
             shieldActive={shieldActive}
             onToggleShield={() => setShieldActive(!shieldActive)}
             blockedUrls={blockedUrls}
+            onClearHistory={handleClearHistory}
+            onNavigateBridge={() => setActiveTab('live_bridge')}
           />
         )}
 

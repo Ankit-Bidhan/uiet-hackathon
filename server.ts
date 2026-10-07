@@ -707,6 +707,13 @@ app.get('/api/threats/temporal-trends', (req, res) => {
   });
 });
 
+// Config Endpoint to give client the exact public Cloud Run backend host
+app.get('/api/config', (req, res) => {
+  res.json({
+    appUrl: process.env.APP_URL || 'https://ais-dev-xguntzmctfbhewslil2knm-188574482368.asia-east1.run.app'
+  });
+});
+
 // Clear / Reset Endpoint for clean demo tests
 app.post('/api/threats/clear', (req, res) => {
   recentScans.length = 0;
@@ -730,7 +737,10 @@ async function startServer() {
     });
   } else {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

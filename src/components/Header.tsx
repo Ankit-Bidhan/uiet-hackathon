@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Smartphone, Terminal, Volume2, VolumeX, Radio, Bug, TrendingUp } from 'lucide-react';
+import { Shield, Smartphone, Terminal, Volume2, VolumeX, Radio, Bug, TrendingUp, RotateCcw } from 'lucide-react';
 import { toggleAudioMute, getAudioMute, playCyberClick } from '../lib/audio';
 
 interface HeaderProps {
@@ -12,6 +12,7 @@ interface HeaderProps {
   };
   shieldActive: boolean;
   onToggleShield: () => void;
+  onClearHistory?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,7 +20,8 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   stats,
   shieldActive,
-  onToggleShield
+  onToggleShield,
+  onClearHistory
 }) => {
   const [muted, setMuted] = React.useState(getAudioMute());
 
@@ -192,6 +194,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
+
+          {/* Reset Demo Logs */}
+          {onClearHistory && (
+            <button
+              onClick={onClearHistory}
+              className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-500/50 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-mono"
+              title="Reset All Demo Threats"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline text-[11px]">Reset Logs</span>
+            </button>
+          )}
         </div>
       </div>
     </header>
